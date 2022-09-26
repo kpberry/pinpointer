@@ -21,7 +21,12 @@ impl<T: Clone + Eq + Hash> LabeledPartitionTree<T> {
         max_depth: usize,
         depth: usize,
     ) -> LabeledPartitionTree<T> {
-        let children = if selected.len() <= 1 || depth == max_depth {
+        // this essentially ignores coastlines; this intersection check can be added to generate coastlines:
+        // selected.len() == 1 && polygons.get(&selected[0]).unwrap().contains(&bbox)
+        // but the check is very expensive, and may not speed up query times enough to be worth it
+        let children = if selected.len() == 0
+            || depth == max_depth
+        {
             Box::new(vec![])
         } else {
             // TODO check if a different branching factor can speed things up
