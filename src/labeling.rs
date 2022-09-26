@@ -5,7 +5,7 @@ use plotters::{
     series::LineSeries,
     style::{BLACK, RED, WHITE},
 };
-use std::{collections::HashMap, hash::Hash, path::Path, time::Instant};
+use std::{collections::HashMap, hash::Hash, ops::Mul, path::Path, time::Instant};
 
 pub struct LabeledPartitionTree<T> {
     children: Box<Vec<LabeledPartitionTree<T>>>,
@@ -102,7 +102,7 @@ impl<T: Clone + Eq + Hash> LabeledPartitionTree<T> {
     }
 
     pub fn plot(&self, out_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
-        let root = BitMapBackend::new(out_path, (2000, 1500)).into_drawing_area();
+        let root = BitMapBackend::new(out_path, (4000, 3000)).into_drawing_area();
         root.fill(&WHITE)?;
         let mut chart = ChartBuilder::on(&root)
             .margin(5)
@@ -147,30 +147,38 @@ impl<T: Clone + Eq + Hash> LabeledPartitionTree<T> {
 }
 
 pub fn country_benchmark(countries: &FeatureCollection) {
-    let labeled_polygons: HashMap<String, MultiPolygon> = countries
-        .features
-        .iter()
-        .map(|country| {
-            let name = country
-                .property("ISO_A2")
-                .unwrap()
-                .as_str()
-                .unwrap()
-                .to_string();
+    let mut labeled_polygons: HashMap<String, Vec<Polygon>> = HashMap::new();
+    countries.features.iter().for_each(|country| {
+        let name = country
+            .property("ISO_A2")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+        if name != "-99" {
             let geometry = country.geometry.as_ref().unwrap();
-            let multi_polygon = MultiPolygon::try_from(geometry.clone());
-            let polygon: MultiPolygon = match multi_polygon {
-                Ok(polygon) => polygon,
-                Err(_) => MultiPolygon::new(vec![Polygon::try_from(geometry.clone()).unwrap()]),
-            };
-            (name, polygon)
-        })
-        .filter(|(name, _)| name != "-99")
+            let mut polygons: Vec<Polygon> = vec![];
+            if let Ok(polygon) = Polygon::try_from(geometry) {
+                polygons = vec![polygon];
+            }
+            if let Ok(multi_polygon) = MultiPolygon::try_from(geometry) {
+                polygons.extend(multi_polygon)
+            }
+            labeled_polygons
+                .entry(name)
+                .or_insert(Vec::new())
+                .extend(polygons);
+        }
+    });
+
+    let labeled_polygons: HashMap<String, MultiPolygon> = labeled_polygons
+        .iter()
+        .map(|(name, polygons)| (name.clone(), MultiPolygon::new(polygons.clone())))
         .collect();
 
     // building depth 10 tree should take 1-2 minutes
     let t0 = Instant::now();
-    let max_depth = 10;
+    let max_depth = 12;
     let tree: LabeledPartitionTree<String> = LabeledPartitionTree::from_labeled_polygons(
         &labeled_polygons.keys().cloned().collect(),
         &labeled_polygons,
