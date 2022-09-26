@@ -5,7 +5,8 @@ use plotters::{
     series::LineSeries,
     style::{BLACK, RED, WHITE},
 };
-use std::{collections::HashMap, hash::Hash, ops::Mul, path::Path, time::Instant};
+use rand::Rng;
+use std::{collections::HashMap, hash::Hash, path::Path, time::Instant};
 
 pub struct LabeledPartitionTree<T> {
     children: Box<Vec<LabeledPartitionTree<T>>>,
@@ -21,11 +22,11 @@ impl<T: Clone + Eq + Hash> LabeledPartitionTree<T> {
         max_depth: usize,
         depth: usize,
     ) -> LabeledPartitionTree<T> {
-        // this essentially ignores coastlines; this intersection check can be added to generate coastlines:
-        // selected.len() == 1 && polygons.get(&selected[0]).unwrap().contains(&bbox)
-        // but the check is very expensive, and may not speed up query times enough to be worth it
-        let children = if selected.len() <= 1
+        let children = if selected.len() == 0
             || depth == max_depth
+            // TODO this check is very expensive; maybe there's a cheaper way to do this?
+            // countries like croatia make simplifications difficult
+            || selected.len() == 1 && polygons.get(&selected[0]).unwrap().contains(&bbox)
         {
             Box::new(vec![])
         } else {
@@ -194,13 +195,18 @@ pub fn country_benchmark(countries: &FeatureCollection) {
     println!("{:?}", tree.size());
     println!("{:?}", t0.elapsed().as_secs_f64());
 
-    tree.plot(Path::new(&format!("tree_plot_{max_depth}.png"))).unwrap();
+    tree.plot(Path::new(&format!("tree_plot_{max_depth}.png")))
+        .unwrap();
 
     // querying 1,000,000 country codes should take < 1 second
     let t0 = Instant::now();
     let mut labels = vec![];
-    for _ in 0..1000000 {
-        let label = tree.label(&Point::new(-70.013332, 12.557998), &labeled_polygons);
+    let mut rng = rand::thread_rng();
+    for _ in 0..10000 {
+        let label = tree.label(
+            &Point::new(rng.gen_range(-180.0..180.0), rng.gen_range(-90.0..90.0)),
+            &labeled_polygons,
+        );
         labels.push(label);
     }
     println!("{:?}", t0.elapsed().as_secs_f64());
