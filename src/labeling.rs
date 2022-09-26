@@ -24,7 +24,7 @@ impl<T: Clone + Eq + Hash> LabeledPartitionTree<T> {
         // this essentially ignores coastlines; this intersection check can be added to generate coastlines:
         // selected.len() == 1 && polygons.get(&selected[0]).unwrap().contains(&bbox)
         // but the check is very expensive, and may not speed up query times enough to be worth it
-        let children = if selected.len() == 0
+        let children = if selected.len() <= 1
             || depth == max_depth
         {
             Box::new(vec![])
@@ -183,7 +183,7 @@ pub fn country_benchmark(countries: &FeatureCollection) {
 
     // building depth 10 tree should take 1-2 minutes
     let t0 = Instant::now();
-    let max_depth = 12;
+    let max_depth = 10;
     let tree: LabeledPartitionTree<String> = LabeledPartitionTree::from_labeled_polygons(
         &labeled_polygons.keys().cloned().collect(),
         &labeled_polygons,
