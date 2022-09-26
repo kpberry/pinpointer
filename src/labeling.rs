@@ -1,6 +1,11 @@
-use geo::{Contains, Intersects, MultiPolygon, Point, Rect, Polygon};
-use std::{collections::HashMap, hash::Hash, time::Instant};
+use geo::{Contains, CoordsIter, Intersects, MultiPolygon, Point, Polygon, Rect};
 use geojson::FeatureCollection;
+use plotters::{
+    prelude::{BitMapBackend, ChartBuilder, IntoDrawingArea},
+    series::LineSeries,
+    style::{BLACK, RED, WHITE},
+};
+use std::{collections::HashMap, hash::Hash, path::Path, time::Instant};
 
 pub struct LabeledPartitionTree<T> {
     children: Box<Vec<LabeledPartitionTree<T>>>,
@@ -95,8 +100,51 @@ impl<T: Clone + Eq + Hash> LabeledPartitionTree<T> {
             self.children.iter().map(|child| child.size()).sum()
         }
     }
-}
 
+    pub fn plot(&self, out_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+        let root = BitMapBackend::new(out_path, (2000, 1500)).into_drawing_area();
+        root.fill(&WHITE)?;
+        let mut chart = ChartBuilder::on(&root)
+            .margin(5)
+            .x_label_area_size(30)
+            .y_label_area_size(30)
+            .build_cartesian_2d(-180f32..180f32, -90f32..90f32)?;
+
+        chart.configure_mesh().draw()?;
+
+        let bboxes = self.bboxes();
+        bboxes.iter().for_each(|bbox| {
+            chart
+                .draw_series(LineSeries::new(
+                    bbox.coords_iter()
+                        .map(|coord| (coord.x as f32, coord.y as f32)),
+                    &RED,
+                ))
+                .unwrap();
+        });
+
+        chart
+            .configure_series_labels()
+            .background_style(&WHITE)
+            .border_style(&BLACK)
+            .draw()?;
+
+        root.present()?;
+        Ok(())
+    }
+
+    fn bboxes(&self) -> Vec<Rect> {
+        if self.children.is_empty() {
+            vec![self.bbox]
+        } else {
+            self.children
+                .iter()
+                .map(|child| child.bboxes())
+                .flatten()
+                .collect()
+        }
+    }
+}
 
 pub fn country_benchmark(countries: &FeatureCollection) {
     let labeled_polygons: HashMap<String, MultiPolygon> = countries
@@ -122,15 +170,18 @@ pub fn country_benchmark(countries: &FeatureCollection) {
 
     // building depth 10 tree should take 1-2 minutes
     let t0 = Instant::now();
+    let max_depth = 10;
     let tree: LabeledPartitionTree<String> = LabeledPartitionTree::from_labeled_polygons(
         &labeled_polygons.keys().cloned().collect(),
         &labeled_polygons,
-        Rect::new(Point::new(90.0, -180.0), Point::new(-90.0, 180.0)),
-        10,
+        Rect::new(Point::new(-180.0, 90.0), Point::new(180.0, -90.0)),
+        max_depth,
         0,
     );
     println!("{:?}", tree.size());
     println!("{:?}", t0.elapsed().as_secs_f64());
+
+    tree.plot(Path::new(&format!("tree_plot_{max_depth}"))).unwrap();
 
     // querying 1,000,000 country codes should take < 1 second
     let t0 = Instant::now();
