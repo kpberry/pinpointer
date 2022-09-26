@@ -21,7 +21,7 @@ impl<T: Clone + Eq + Hash> LabeledPartitionTree<T> {
         max_depth: usize,
         depth: usize,
     ) -> LabeledPartitionTree<T> {
-        let children = if selected.is_empty() || depth == max_depth {
+        let children = if selected.len() <= 1 || depth == max_depth {
             Box::new(vec![])
         } else {
             // TODO check if a different branching factor can speed things up
@@ -181,7 +181,7 @@ pub fn country_benchmark(countries: &FeatureCollection) {
     println!("{:?}", tree.size());
     println!("{:?}", t0.elapsed().as_secs_f64());
 
-    tree.plot(Path::new(&format!("tree_plot_{max_depth}"))).unwrap();
+    tree.plot(Path::new(&format!("tree_plot_{max_depth}.png"))).unwrap();
 
     // querying 1,000,000 country codes should take < 1 second
     let t0 = Instant::now();
