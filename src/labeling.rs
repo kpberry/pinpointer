@@ -1,5 +1,6 @@
-use geo::{Contains, Intersects, MultiPolygon, Point, Rect};
-use std::{collections::HashMap, hash::Hash};
+use geo::{Contains, Intersects, MultiPolygon, Point, Rect, Polygon};
+use std::{collections::HashMap, hash::Hash, time::Instant};
+use geojson::FeatureCollection;
 
 pub struct LabeledPartitionTree<T> {
     children: Box<Vec<LabeledPartitionTree<T>>>,
@@ -94,4 +95,49 @@ impl<T: Clone + Eq + Hash> LabeledPartitionTree<T> {
             self.children.iter().map(|child| child.size()).sum()
         }
     }
+}
+
+
+pub fn country_benchmark(countries: &FeatureCollection) {
+    let labeled_polygons: HashMap<String, MultiPolygon> = countries
+        .features
+        .iter()
+        .map(|country| {
+            let name = country
+                .property("ISO_A2")
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .to_string();
+            let geometry = country.geometry.as_ref().unwrap();
+            let multi_polygon = MultiPolygon::try_from(geometry.clone());
+            let polygon: MultiPolygon = match multi_polygon {
+                Ok(polygon) => polygon,
+                Err(_) => MultiPolygon::new(vec![Polygon::try_from(geometry.clone()).unwrap()]),
+            };
+            (name, polygon)
+        })
+        .filter(|(name, _)| name != "-99")
+        .collect();
+
+    // building depth 10 tree should take 1-2 minutes
+    let t0 = Instant::now();
+    let tree: LabeledPartitionTree<String> = LabeledPartitionTree::from_labeled_polygons(
+        &labeled_polygons.keys().cloned().collect(),
+        &labeled_polygons,
+        Rect::new(Point::new(90.0, -180.0), Point::new(-90.0, 180.0)),
+        10,
+        0,
+    );
+    println!("{:?}", tree.size());
+    println!("{:?}", t0.elapsed().as_secs_f64());
+
+    // querying 1,000,000 country codes should take < 1 second
+    let t0 = Instant::now();
+    let mut labels = vec![];
+    for _ in 0..1000000 {
+        let label = tree.label(&Point::new(-70.013332, 12.557998), &labeled_polygons);
+        labels.push(label);
+    }
+    println!("{:?}", t0.elapsed().as_secs_f64());
 }
