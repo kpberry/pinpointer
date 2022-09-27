@@ -1,5 +1,4 @@
-use geo::{BooleanOps, Contains, CoordsIter, Intersects, MultiPolygon, Point, Polygon, Rect};
-use geojson::FeatureCollection;
+use geo::{BooleanOps, Contains, CoordsIter, Intersects, MultiPolygon, Point, Rect};
 use plotters::{
     prelude::{BitMapBackend, ChartBuilder, IntoDrawingArea},
     series::LineSeries,
@@ -10,9 +9,8 @@ use std::{collections::HashMap, hash::Hash, path::Path, time::Instant};
 
 pub struct LabeledPartitionTree<T> {
     children: Box<Vec<LabeledPartitionTree<T>>>,
-    labels: Vec<T>,
-    bbox: Rect,
     polygons: HashMap<T, MultiPolygon>,
+    bbox: Rect,
 }
 
 impl<T: Clone + Eq + Hash> LabeledPartitionTree<T> {
@@ -88,42 +86,14 @@ impl<T: Clone + Eq + Hash> LabeledPartitionTree<T> {
             )
         };
 
-        let labels = selected.clone();
         LabeledPartitionTree {
             children,
-            labels,
             bbox,
             polygons: inner_polygons,
         }
     }
 
-    pub fn get_candidate_labels(&self, point: &Point) -> Vec<T> {
-        if self.children.is_empty() {
-            self.labels.clone()
-        } else {
-            self.children
-                .iter()
-                .filter(|child| child.bbox.contains(point))
-                .map(|child| child.get_candidate_labels(point))
-                .flatten()
-                .collect()
-        }
-    }
-
-    pub fn label(&self, point: &Point, polygons: &HashMap<T, MultiPolygon>) -> Option<T> {
-        let candidates = self.get_candidate_labels(point);
-        candidates
-            .iter()
-            .find(|candidate| {
-                polygons
-                    .get(&candidate)
-                    .map(|polygon| polygon.contains(point))
-                    .unwrap_or(false)
-            })
-            .cloned()
-    }
-
-    pub fn label2(&self, point: &Point) -> Option<T> {
+    pub fn label(&self, point: &Point) -> Option<T> {
         if self.children.is_empty() {
             self.polygons.iter().find_map(|(label, polygon)| {
                 if polygon.contains(point) {
@@ -136,7 +106,7 @@ impl<T: Clone + Eq + Hash> LabeledPartitionTree<T> {
             self.children
                 .iter()
                 .filter(|child| child.bbox.contains(point))
-                .find_map(|child| child.label2(point))
+                .find_map(|child| child.label(point))
         }
     }
 
@@ -193,42 +163,13 @@ impl<T: Clone + Eq + Hash> LabeledPartitionTree<T> {
     }
 }
 
-pub fn country_benchmark(countries: &FeatureCollection) {
-    let mut labeled_polygons: HashMap<String, Vec<Polygon>> = HashMap::new();
-    countries.features.iter().for_each(|country| {
-        let name = country
-            .property("ISO_A2")
-            .unwrap()
-            .as_str()
-            .unwrap()
-            .to_string();
-        if name != "-99" {
-            let geometry = country.geometry.as_ref().unwrap();
-            let mut polygons: Vec<Polygon> = vec![];
-            if let Ok(polygon) = Polygon::try_from(geometry) {
-                polygons = vec![polygon];
-            }
-            if let Ok(multi_polygon) = MultiPolygon::try_from(geometry) {
-                polygons.extend(multi_polygon)
-            }
-            labeled_polygons
-                .entry(name)
-                .or_insert(Vec::new())
-                .extend(polygons);
-        }
-    });
-
-    let labeled_polygons: HashMap<String, MultiPolygon> = labeled_polygons
-        .iter()
-        .map(|(name, polygons)| (name.clone(), MultiPolygon::new(polygons.clone())))
-        .collect();
-
-    // building depth 10 tree should take ~30 seconds
+pub fn country_benchmark(countries: &HashMap<String, MultiPolygon>) {
+    // building depth 8 tree should take ~5 minutes
     let t0 = Instant::now();
-    let max_depth = 5;
+    let max_depth = 6;
     let tree: LabeledPartitionTree<String> = LabeledPartitionTree::from_labeled_polygons(
-        &labeled_polygons.keys().cloned().collect(),
-        &labeled_polygons,
+        &countries.keys().cloned().collect(),
+        &countries,
         Rect::new(Point::new(-180.0, 90.0), Point::new(180.0, -90.0)),
         max_depth,
         0,
@@ -240,26 +181,49 @@ pub fn country_benchmark(countries: &FeatureCollection) {
         .unwrap();
 
     let mut rng = rand::thread_rng();
-    let latlons: Vec<(f64, f64)> = (0..1000000)
+    let latlons: Vec<(f64, f64)> = (0..10000000)
         .map(|_| (rng.gen_range(-180.0..180.0), rng.gen_range(-90.0..90.0)))
         .collect();
 
-    let t0 = Instant::now();
-    let mut labels1 = vec![];
-    for (lat, lon) in latlons.iter() {
-        let label = tree.label(&Point::new(*lon, *lat), &labeled_polygons);
-        labels1.push(label);
-    }
-    println!("{:?}", t0.elapsed().as_secs_f64());
-
-    // querying 1,000,000 country codes should take < 1 second
+    // querying 10,000,000 country codes should take 1-2 seconds
     let t0 = Instant::now();
     let mut labels2 = vec![];
     for (lat, lon) in latlons.iter() {
-        let label = tree.label2(&Point::new(*lon, *lat));
+        let label = tree.label(&Point::new(*lon, *lat));
         labels2.push(label);
     }
     println!("{:?}", t0.elapsed().as_secs_f64());
+}
 
-    assert!(labels1 == labels2);
+
+pub fn province_benchmark(provinces: &HashMap<String, MultiPolygon>) {
+    // building depth 8 tree should take ~2 minutes
+    let t0 = Instant::now();
+    let max_depth = 8;
+    let tree: LabeledPartitionTree<String> = LabeledPartitionTree::from_labeled_polygons(
+        &provinces.keys().cloned().collect(),
+        &provinces,
+        Rect::new(Point::new(-180.0, 90.0), Point::new(180.0, -90.0)),
+        max_depth,
+        0,
+    );
+    println!("{:?}", tree.size());
+    println!("{:?}", t0.elapsed().as_secs_f64());
+
+    tree.plot(Path::new(&format!("tree_plot_{max_depth}.png")))
+        .unwrap();
+
+    let mut rng = rand::thread_rng();
+    let latlons: Vec<(f64, f64)> = (0..10000000)
+        .map(|_| (rng.gen_range(-180.0..180.0), rng.gen_range(-90.0..90.0)))
+        .collect();
+
+    // querying 10,000,000 province codes should take 2-3 seconds
+    let t0 = Instant::now();
+    let mut labels2 = vec![];
+    for (lat, lon) in latlons.iter() {
+        let label = tree.label(&Point::new(*lon, *lat));
+        labels2.push(label);
+    }
+    println!("{:?}", t0.elapsed().as_secs_f64());
 }
