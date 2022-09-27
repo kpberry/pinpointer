@@ -1,4 +1,4 @@
-use geo::{Contains, CoordsIter, Intersects, MultiPolygon, Point, Polygon, Rect};
+use geo::{BooleanOps, Contains, CoordsIter, Intersects, MultiPolygon, Point, Polygon, Rect};
 use geojson::FeatureCollection;
 use plotters::{
     prelude::{BitMapBackend, ChartBuilder, IntoDrawingArea},
@@ -12,6 +12,7 @@ pub struct LabeledPartitionTree<T> {
     children: Box<Vec<LabeledPartitionTree<T>>>,
     labels: Vec<T>,
     bbox: Rect,
+    polygons: HashMap<T, MultiPolygon>,
 }
 
 impl<T: Clone + Eq + Hash> LabeledPartitionTree<T> {
@@ -22,13 +23,32 @@ impl<T: Clone + Eq + Hash> LabeledPartitionTree<T> {
         max_depth: usize,
         depth: usize,
     ) -> LabeledPartitionTree<T> {
-        let children = if selected.len() == 0
-            || depth == max_depth
-            // TODO this check is very expensive; maybe there's a cheaper way to do this?
-            // countries like croatia make simplifications difficult
-            || selected.len() == 1 && polygons.get(&selected[0]).unwrap().contains(&bbox)
-        {
-            Box::new(vec![])
+        let (children, inner_polygons) = if depth == max_depth {
+            (
+                Box::new(vec![]),
+                selected
+                    .iter()
+                    .map(|label| {
+                        (
+                            label.clone(),
+                            polygons
+                                .get(label)
+                                .unwrap()
+                                .intersection(&MultiPolygon::from(bbox)), // TODO this intersection is slow
+                        )
+                    })
+                    .collect(),
+            )
+        } else if selected.len() == 0 {
+            (Box::new(vec![]), HashMap::new())
+        } else if selected.len() == 1 && polygons.get(&selected[0]).unwrap().contains(&bbox) {
+            // TODO the check for this is slow
+            (
+                Box::new(vec![]),
+                vec![(selected[0].clone(), MultiPolygon::from(bbox))]
+                    .into_iter()
+                    .collect(),
+            )
         } else {
             // TODO check if a different branching factor can speed things up
             let [ab, cd] = bbox.split_x();
@@ -48,20 +68,23 @@ impl<T: Clone + Eq + Hash> LabeledPartitionTree<T> {
                 })
                 .collect();
 
-            Box::new(
-                bbox_selected_polygons
-                    .iter()
-                    .zip(bboxes)
-                    .map(|(selected, bbox)| {
-                        LabeledPartitionTree::from_labeled_polygons(
-                            selected,
-                            polygons,
-                            bbox,
-                            max_depth,
-                            depth + 1,
-                        )
-                    })
-                    .collect(),
+            (
+                Box::new(
+                    bbox_selected_polygons
+                        .iter()
+                        .zip(bboxes)
+                        .map(|(selected, bbox)| {
+                            LabeledPartitionTree::from_labeled_polygons(
+                                selected,
+                                polygons,
+                                bbox,
+                                max_depth,
+                                depth + 1,
+                            )
+                        })
+                        .collect(),
+                ),
+                HashMap::new(),
             )
         };
 
@@ -70,6 +93,7 @@ impl<T: Clone + Eq + Hash> LabeledPartitionTree<T> {
             children,
             labels,
             bbox,
+            polygons: inner_polygons,
         }
     }
 
@@ -97,6 +121,23 @@ impl<T: Clone + Eq + Hash> LabeledPartitionTree<T> {
                     .unwrap_or(false)
             })
             .cloned()
+    }
+
+    pub fn label2(&self, point: &Point) -> Option<T> {
+        if self.children.is_empty() {
+            self.polygons.iter().find_map(|(label, polygon)| {
+                if polygon.contains(point) {
+                    Some(label.clone())
+                } else {
+                    None
+                }
+            })
+        } else {
+            self.children
+                .iter()
+                .filter(|child| child.bbox.contains(point))
+                .find_map(|child| child.label2(point))
+        }
     }
 
     pub fn size(&self) -> usize {
@@ -182,9 +223,9 @@ pub fn country_benchmark(countries: &FeatureCollection) {
         .map(|(name, polygons)| (name.clone(), MultiPolygon::new(polygons.clone())))
         .collect();
 
-    // building depth 10 tree should take 1-2 minutes
+    // building depth 10 tree should take ~30 seconds
     let t0 = Instant::now();
-    let max_depth = 10;
+    let max_depth = 5;
     let tree: LabeledPartitionTree<String> = LabeledPartitionTree::from_labeled_polygons(
         &labeled_polygons.keys().cloned().collect(),
         &labeled_polygons,
@@ -198,16 +239,27 @@ pub fn country_benchmark(countries: &FeatureCollection) {
     tree.plot(Path::new(&format!("tree_plot_{max_depth}.png")))
         .unwrap();
 
-    // querying 1,000,000 country codes should take < 1 second
-    let t0 = Instant::now();
-    let mut labels = vec![];
     let mut rng = rand::thread_rng();
-    for _ in 0..10000 {
-        let label = tree.label(
-            &Point::new(rng.gen_range(-180.0..180.0), rng.gen_range(-90.0..90.0)),
-            &labeled_polygons,
-        );
-        labels.push(label);
+    let latlons: Vec<(f64, f64)> = (0..1000000)
+        .map(|_| (rng.gen_range(-180.0..180.0), rng.gen_range(-90.0..90.0)))
+        .collect();
+
+    let t0 = Instant::now();
+    let mut labels1 = vec![];
+    for (lat, lon) in latlons.iter() {
+        let label = tree.label(&Point::new(*lon, *lat), &labeled_polygons);
+        labels1.push(label);
     }
     println!("{:?}", t0.elapsed().as_secs_f64());
+
+    // querying 1,000,000 country codes should take < 1 second
+    let t0 = Instant::now();
+    let mut labels2 = vec![];
+    for (lat, lon) in latlons.iter() {
+        let label = tree.label2(&Point::new(*lon, *lat));
+        labels2.push(label);
+    }
+    println!("{:?}", t0.elapsed().as_secs_f64());
+
+    assert!(labels1 == labels2);
 }
