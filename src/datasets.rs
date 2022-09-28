@@ -58,7 +58,7 @@ pub fn load_or_compute_label_tree(
     label: &str,
     max_depth: usize,
 ) -> LabeledPartitionTree<String> {
-    let cache_path = cache_dir.join(format!("country_label_tree_{max_depth}.json"));
+    let cache_path = cache_dir.join(format!("{label}_label_tree_{max_depth}.json"));
     let tree = match fs::read_to_string(&cache_path) {
         Ok(string) => serde_json::from_str(&string).unwrap(),
         Err(e) => {
