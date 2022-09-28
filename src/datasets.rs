@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fs,
-    path::{self, Path},
+    path::Path,
 };
 
 use geo::{MultiPolygon, Point, Polygon, Rect};

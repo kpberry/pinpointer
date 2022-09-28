@@ -1,17 +1,17 @@
-use std::{fs, net::SocketAddr, path::Path, sync::Arc};
+use std::{net::SocketAddr, path::Path, sync::Arc};
 
 use axum::{extract::Query, routing::get, Router};
 use datasets::{
-    load_or_compute_country_label_tree, load_or_compute_province_label_tree, load_provinces,
+    load_or_compute_country_label_tree, load_or_compute_province_label_tree,
 };
-use geo::{Point, Rect};
+use geo::Point;
 
 mod datasets;
 mod labeling;
 
 use serde::Deserialize;
 
-use crate::{datasets::load_countries, labeling::LabeledPartitionTree};
+use crate::labeling::LabeledPartitionTree;
 
 #[derive(Deserialize, Debug)]
 struct LatLon {
