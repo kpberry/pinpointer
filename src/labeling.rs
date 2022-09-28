@@ -7,7 +7,8 @@ use plotters::{
 use rand::Rng;
 use std::{collections::HashMap, hash::Hash, path::Path, time::Instant};
 
-pub struct LabeledPartitionTree<T> {
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct LabeledPartitionTree<T: Eq + Hash> {
     children: Box<Vec<LabeledPartitionTree<T>>>,
     polygons: HashMap<T, MultiPolygon>,
     bbox: Rect,
