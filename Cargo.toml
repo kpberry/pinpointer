@@ -14,9 +14,9 @@ name = "pinpointer"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-geojson = { version = "0.24.0", features = ["geo-types"] }
+geojson = { version = "0.24.1", features = ["geo-types"] }
 geo-types = "0.7.10"
-geo = "0.23.0"
+geo = "0.25.1"
 plotters = "0.3.1"
 rand = "0.8.5"
 axum = "0.5.16"
