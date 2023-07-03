@@ -2,6 +2,10 @@
 name = "pinpointer"
 version = "0.1.0"
 edition = "2021"
+authors = ["kpberry"]
+description = "Gets provinces and countries from latitudes and longitudes."
+license = "MIT"
+homepage = "https://github.com/kpberry/pinpointer"
 
 [[bin]]
 path = "src/main.rs"
