@@ -4,8 +4,7 @@ use plotters::{
     series::LineSeries,
     style::{BLACK, RED, WHITE},
 };
-use rand::Rng;
-use std::{collections::HashMap, hash::Hash, path::Path, time::Instant};
+use std::{collections::HashMap, hash::Hash, path::Path};
 
 /// A struct representing a labeled partition tree.
 ///
@@ -186,67 +185,3 @@ impl<T: Clone + Eq + Hash> LabeledPartitionTree<T> {
     }
 }
 
-pub fn country_benchmark(countries: &HashMap<String, MultiPolygon>) {
-    // building depth 8 tree should take ~5 minutes
-    let t0 = Instant::now();
-    let max_depth = 6;
-    let tree: LabeledPartitionTree<String> = LabeledPartitionTree::from_labeled_polygons(
-        &countries.keys().cloned().collect(),
-        &countries,
-        Rect::new(Point::new(-180.0, 90.0), Point::new(180.0, -90.0)),
-        max_depth,
-        0,
-    );
-    println!("{:?}", tree.size());
-    println!("{:?}", t0.elapsed().as_secs_f64());
-
-    tree.plot(Path::new(&format!("tree_plot_{max_depth}.png")))
-        .unwrap();
-
-    let mut rng = rand::thread_rng();
-    let latlons: Vec<(f64, f64)> = (0..10000000)
-        .map(|_| (rng.gen_range(-180.0..180.0), rng.gen_range(-90.0..90.0)))
-        .collect();
-
-    // querying 10,000,000 country codes should take 1-2 seconds
-    let t0 = Instant::now();
-    let mut labels2 = vec![];
-    for (lat, lon) in latlons.iter() {
-        let label = tree.label(&Point::new(*lon, *lat));
-        labels2.push(label);
-    }
-    println!("{:?}", t0.elapsed().as_secs_f64());
-}
-
-
-pub fn province_benchmark(provinces: &HashMap<String, MultiPolygon>) {
-    // building depth 8 tree should take ~2 minutes
-    let t0 = Instant::now();
-    let max_depth = 8;
-    let tree: LabeledPartitionTree<String> = LabeledPartitionTree::from_labeled_polygons(
-        &provinces.keys().cloned().collect(),
-        &provinces,
-        Rect::new(Point::new(-180.0, 90.0), Point::new(180.0, -90.0)),
-        max_depth,
-        0,
-    );
-    println!("{:?}", tree.size());
-    println!("{:?}", t0.elapsed().as_secs_f64());
-
-    tree.plot(Path::new(&format!("tree_plot_{max_depth}.png")))
-        .unwrap();
-
-    let mut rng = rand::thread_rng();
-    let latlons: Vec<(f64, f64)> = (0..10000000)
-        .map(|_| (rng.gen_range(-180.0..180.0), rng.gen_range(-90.0..90.0)))
-        .collect();
-
-    // querying 10,000,000 province codes should take 2-3 seconds
-    let t0 = Instant::now();
-    let mut labels2 = vec![];
-    for (lat, lon) in latlons.iter() {
-        let label = tree.label(&Point::new(*lon, *lat));
-        labels2.push(label);
-    }
-    println!("{:?}", t0.elapsed().as_secs_f64());
-}
