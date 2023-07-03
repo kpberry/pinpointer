@@ -18,13 +18,15 @@ pub struct LabeledPartitionTree<T: Eq + Hash> {
 }
 
 impl<T: Clone + Eq + Hash> LabeledPartitionTree<T> {
-     /// Constructs a labeled partition tree from a set of labeled polygons.
+    /// Constructs a labeled partition tree from a set of labeled polygons.
     ///
-    /// The `selected` parameter contains the labels of the polygons to be included in the tree.
-    /// The `polygons` parameter is a map of labels to their corresponding polygons.
-    /// The `bbox` parameter represents the bounding box for the current partition.
-    /// The `max_depth` parameter determines the maximum depth of the tree.
-    /// The `depth` parameter specifies the current depth during recursion.
+    /// # Arguments
+    /// * `selected` - The labels of the polygons to be included in the tree.
+    /// * `polygons` - A map of labels to their corresponding polygons.
+    /// * `bbox` - The bounding box for the current partition.
+    /// * `max_depth` - The maximum depth of the tree. Deeper trees tend to result in faster queries, 
+    ///                 but take much longer to construct.
+    /// * `depth` - The current depth during recursion.
     pub fn from_labeled_polygons(
         selected: &Vec<T>,
         polygons: &HashMap<T, MultiPolygon>,
@@ -108,6 +110,9 @@ impl<T: Clone + Eq + Hash> LabeledPartitionTree<T> {
     ///
     /// This method recursively searches for the leaf node that contains the point and returns its label.
     /// If no leaf node contains the point, `None` is returned.
+    /// 
+    /// # Arguments
+    /// * `point` - The point to check.
     pub fn label(&self, point: &Point) -> Option<T> {
         if self.children.is_empty() {
             self.polygons.iter().find_map(|(label, polygon)| {
@@ -125,9 +130,7 @@ impl<T: Clone + Eq + Hash> LabeledPartitionTree<T> {
         }
     }
 
-    /// Returns the size of the labeled partition tree.
-    ///
-    /// The size represents the total number of leaf nodes in the tree.
+    /// Returns the number of leaf nodes in the tree.
     pub fn size(&self) -> usize {
         if self.children.is_empty() {
             1
@@ -138,7 +141,8 @@ impl<T: Clone + Eq + Hash> LabeledPartitionTree<T> {
 
     /// Plots the labeled partition tree and saves the image to the specified path.
     ///
-    /// The `out_path` parameter is the path where the resulting image will be saved.
+    /// # Arguments
+    /// * `out_path` - The path where the resulting image will be saved.
     pub fn plot(&self, out_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         let root = BitMapBackend::new(out_path, (4000, 3000)).into_drawing_area();
         root.fill(&WHITE)?;

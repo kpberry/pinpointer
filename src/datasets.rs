@@ -52,10 +52,6 @@ pub fn lazy_download_map_data() -> Result<(), Box<dyn std::error::Error>> {
 ///
 /// * `path` - The path to the GeoJSON file.
 /// * `label` - The property to use as the label for the polygons.
-///
-/// # Returns
-///
-/// A HashMap where the keys are labels and the values are MultiPolygons.
 pub fn load_labeled_collection_polygons(path: &Path, label: &str) -> HashMap<String, MultiPolygon> {
     let geojson_str = fs::read_to_string(path).unwrap();
     let geojson = geojson_str.parse::<GeoJson>().unwrap();
@@ -96,11 +92,6 @@ pub fn load_labeled_collection_polygons(path: &Path, label: &str) -> HashMap<Str
 /// # Arguments
 ///
 /// * `path` - The path to the GeoJSON file.
-///
-/// # Returns
-///
-/// A HashMap where each key is a country name and the value is the MultiPolygons representing
-/// the country's borders. 
 pub fn load_countries(path: &Path) -> HashMap<String, MultiPolygon> {
     load_labeled_collection_polygons(path, "ISO_A2")
 }
@@ -110,11 +101,6 @@ pub fn load_countries(path: &Path) -> HashMap<String, MultiPolygon> {
 /// # Arguments
 ///
 /// * `path` - The path to the GeoJSON file.
-///
-/// # Returns
-///
-/// A HashMap where each key is a province name and the value is the MultiPolygons representing
-/// the province's borders. 
 pub fn load_provinces(path: &Path) -> HashMap<String, MultiPolygon> {
     load_labeled_collection_polygons(path, "iso_3166_2")
 }
@@ -129,10 +115,6 @@ pub fn load_provinces(path: &Path) -> HashMap<String, MultiPolygon> {
 /// * `collection_path` - The path to the GeoJSON file.
 /// * `label` - The property to use as the label for the polygons.
 /// * `max_depth` - The maximum depth of the partition tree.
-///
-/// # Returns
-///
-/// A `LabeledPartitionTree` with labels of type `String`.
 pub fn load_or_compute_label_tree(
     cache_dir: &Path,
     collection_path: &Path,
@@ -170,10 +152,6 @@ pub fn load_or_compute_label_tree(
 /// * `cache_dir` - The directory where the tree cache will be stored.
 /// * `countries_path` - The path to the GeoJSON file containing country data.
 /// * `max_depth` - The maximum depth of the partition tree.
-///
-/// # Returns
-///
-/// A `LabeledPartitionTree` with ISO_A2 country names as labels.
 pub fn load_or_compute_country_label_tree(
     cache_dir: &Path,
     countries_path: &Path,
@@ -191,10 +169,6 @@ pub fn load_or_compute_country_label_tree(
 /// * `cache_dir` - The directory where the tree cache will be stored.
 /// * `provinces_path` - The path to the GeoJSON file containing province data.
 /// * `max_depth` - The maximum depth of the partition tree.
-///
-/// # Returns
-///
-/// A `LabeledPartitionTree` with iso_3166_2 province names as labels.
 pub fn load_or_compute_province_label_tree(
     cache_dir: &Path,
     provinces_path: &Path,
