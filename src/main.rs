@@ -2,7 +2,7 @@ use std::{net::SocketAddr, path::Path, sync::Arc};
 
 use axum::{extract::Query, routing::get, Router};
 use datasets::{
-    load_or_compute_country_label_tree, load_or_compute_province_label_tree,
+    load_or_compute_country_label_tree, load_or_compute_province_label_tree, lazy_download_map_data,
 };
 use geo::Point;
 
@@ -30,9 +30,11 @@ async fn lat_lon_to_label(
 
 #[tokio::main]
 async fn main() {
+    lazy_download_map_data().expect("Could not load or download map data.");
+
     let country_label_tree = load_or_compute_country_label_tree(
         Path::new("data"),
-        Path::new("data\\ne_10m_admin_0_countries.json"),
+        Path::new("data\\ne_10m_admin_0_countries_lakes.json"),
         6
     );
     let country_label_tree_arc = Arc::new(country_label_tree);

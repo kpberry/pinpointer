@@ -1,13 +1,37 @@
-use std::{
-    collections::HashMap,
-    fs,
-    path::Path,
-};
+use std::{collections::HashMap, fs, path::Path};
 
 use geo::{MultiPolygon, Point, Polygon, Rect};
 use geojson::{FeatureCollection, GeoJson};
 
 use crate::labeling::LabeledPartitionTree;
+
+use reqwest::blocking::get;
+use serde_json::{json, Value};
+use std::fs::File;
+use std::io::prelude::*;
+
+pub fn lazy_download_map_data() -> Result<(), Box<dyn std::error::Error>> {
+    let filenames = vec![
+        "ne_10m_admin_0_countries_lakes",
+        "ne_10m_admin_1_states_provinces",
+    ];
+    for filename in filenames {
+        let output_filename = &format!("data/{}.json", filename);
+        let output_path = Path::new(output_filename);
+        if !output_path.exists() {
+            let url = format!(
+                "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/{}.geojson",
+                filename
+            );
+            let data = get(&url)?.bytes()?;
+
+            let mut file = File::create(&output_path)?;
+            file.write_all(&data)?;
+        }
+    }
+
+    Ok(())
+}
 
 pub fn load_labeled_collection_polygons(path: &Path, label: &str) -> HashMap<String, MultiPolygon> {
     let geojson_str = fs::read_to_string(path).unwrap();
