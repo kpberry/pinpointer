@@ -10,7 +10,7 @@ cargo install pinpointer
 ```
 
 ## Usage
-### Library:
+### As a library:
 The main feature of this library is the `LabeledPartitionTree`, which can be used to perform fast point-in-region queries. 
 A `LabeledPartitionTree` can be built from a mapping from labels to polygons with those labels.
 
@@ -18,7 +18,7 @@ This library provides some helper functions to make it easy to get map data and 
 See the examples folder for full code examples for downloading data, computing the label trees, and finally performing millions of point-in-country/point-in-province lookups.
 
 ### Demo server:
-You can also run a local demo server on port 8000 by running the `pinpointer` command after installation. 
+You can also run a local demo server on port 8000 by running the `pinpointer-server` command after installation. 
 On startup, the server will download country and province data to the `data` directory and compute depth 6 label trees for both.
 The server exposes two endpoints, `/lat_lon_to_country` and `/lat_lon_to_province`, which take `lat` and `lon` query arguments and return a country or province code, respectively.
 If the lat/lon pair does not fall within any country, the endpoints return "-99" instead.
