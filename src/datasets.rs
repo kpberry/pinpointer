@@ -6,7 +6,6 @@ use geojson::{FeatureCollection, GeoJson};
 use crate::labeling::LabeledPartitionTree;
 
 use reqwest::blocking::get;
-use serde_json::{json, Value};
 use std::fs::File;
 use std::io::prelude::*;
 
