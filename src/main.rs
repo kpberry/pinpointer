@@ -34,14 +34,14 @@ async fn main() {
 
     let country_label_tree = load_or_compute_country_label_tree(
         Path::new("data"),
-        Path::new("data\\ne_10m_admin_0_countries_lakes.json"),
+        Path::new("data\\ne_10m_admin_0_countries_lakes.geojson"),
         6
     );
     let country_label_tree_arc = Arc::new(country_label_tree);
 
     let province_label_tree = load_or_compute_province_label_tree(
         Path::new("data"),
-        Path::new("data\\ne_10m_admin_1_states_provinces.json"),
+        Path::new("data\\ne_10m_admin_1_states_provinces.geojson"),
         6
     );
     let province_label_tree_arc = Arc::new(province_label_tree);

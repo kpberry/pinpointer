@@ -6,7 +6,7 @@ use geojson::{FeatureCollection, GeoJson};
 use crate::labeling::LabeledPartitionTree;
 
 use reqwest::blocking::get;
-use std::fs::File;
+use std::fs::{File, create_dir};
 use std::io::prelude::*;
 
 /// Downloads map data lazily if it doesn't exist in the specified directory.
@@ -16,21 +16,29 @@ use std::io::prelude::*;
 /// Returns an error if there is an issue with downloading or writing the files.
 pub fn lazy_download_map_data() -> Result<(), Box<dyn std::error::Error>> {
     let filenames = vec![
-        "ne_10m_admin_0_countries_lakes",
-        "ne_10m_admin_1_states_provinces",
+        "ne_10m_admin_0_countries_lakes.geojson",
+        "ne_10m_admin_1_states_provinces.geojson",
     ];
     for filename in filenames {
-        let output_filename = &format!("data/{}.json", filename);
-        let output_path = Path::new(output_filename);
-        if !output_path.exists() {
+        let data_path = Path::new("data");
+        if !data_path.exists() {
+            create_dir(data_path).unwrap();
+        }
+
+        let output_path = data_path.join(filename);
+        if output_path.exists() {
+            println!("Loaded {:?} from local file.", output_path);
+        } else {
             let url = format!(
-                "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/{}.geojson",
+                "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/{}",
                 filename
             );
+            println!("{:?} not found locally. Downloading from {}", output_path, url);
             let data = get(&url)?.bytes()?;
 
             let mut file = File::create(&output_path)?;
             file.write_all(&data)?;
+            println!("Done.");
         }
     }
 
