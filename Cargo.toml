@@ -6,6 +6,7 @@ authors = ["kpberry"]
 description = "Gets provinces and countries from latitudes and longitudes."
 license = "MIT"
 homepage = "https://github.com/kpberry/pinpointer"
+documentation = "https://docs.rs/pinpointer"
 
 [[bin]]
 path = "src/main.rs"
