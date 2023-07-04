@@ -18,7 +18,7 @@ pub fn main() {
     // build a label tree so we can do point-in-province queries (should take about 1 minute)
     let province_label_tree = load_or_compute_province_label_tree(
         Path::new("data"),
-        Path::new("data\\ne_10m_admin_1_states_provinces.geojson"),
+        Path::new("data\\ne_10m_admin_1_states_provinces_lakes.geojson"),
         6,
     );
 

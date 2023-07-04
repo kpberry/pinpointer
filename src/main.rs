@@ -41,7 +41,7 @@ async fn main() {
 
     let province_label_tree = load_or_compute_province_label_tree(
         Path::new("data"),
-        Path::new("data\\ne_10m_admin_1_states_provinces.geojson"),
+        Path::new("data\\ne_10m_admin_1_states_provinces_lakes.geojson"),
         6
     );
     let province_label_tree_arc = Arc::new(province_label_tree);

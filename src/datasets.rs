@@ -17,7 +17,7 @@ use std::io::prelude::*;
 pub fn lazy_download_map_data() -> Result<(), Box<dyn std::error::Error>> {
     let filenames = vec![
         "ne_10m_admin_0_countries_lakes.geojson",
-        "ne_10m_admin_1_states_provinces.geojson",
+        "ne_10m_admin_1_states_provinces_lakes.geojson",
     ];
     for filename in filenames {
         let data_path = Path::new("data");
