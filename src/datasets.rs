@@ -6,7 +6,7 @@ use geojson::{FeatureCollection, GeoJson};
 use crate::labeling::LabeledPartitionTree;
 
 use reqwest::blocking::get;
-use std::fs::{File, create_dir};
+use std::fs::{create_dir, File};
 use std::io::prelude::*;
 
 /// Downloads map data lazily if it doesn't exist in the specified directory.
@@ -33,7 +33,10 @@ pub fn lazy_download_map_data() -> Result<(), Box<dyn std::error::Error>> {
                 "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/{}",
                 filename
             );
-            println!("{:?} not found locally. Downloading from {}", output_path, url);
+            println!(
+                "{:?} not found locally. Downloading from {}",
+                output_path, url
+            );
             let data = get(&url)?.bytes()?;
 
             let mut file = File::create(&output_path)?;
@@ -44,7 +47,6 @@ pub fn lazy_download_map_data() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-
 
 /// Loads labeled polygons from a GeoJSON file and returns them as a HashMap.
 ///
@@ -88,7 +90,7 @@ pub fn load_labeled_collection_polygons(path: &Path, label: &str) -> HashMap<Str
 }
 
 /// Loads a HashMap from ISO_A2 country names to their borders from a GeoJSON file.
-/// 
+///
 /// # Arguments
 ///
 /// * `path` - The path to the GeoJSON file.
@@ -97,14 +99,13 @@ pub fn load_countries(path: &Path) -> HashMap<String, MultiPolygon> {
 }
 
 /// Loads a HashMap from iso_3166_2 province names to their borders from a GeoJSON file.
-/// 
+///
 /// # Arguments
 ///
 /// * `path` - The path to the GeoJSON file.
 pub fn load_provinces(path: &Path) -> HashMap<String, MultiPolygon> {
     load_labeled_collection_polygons(path, "iso_3166_2")
 }
-
 
 /// Loads or computes a labeled partition tree from the given GeoJSON file and property label.
 /// If a cached version of the tree exists, it is loaded; otherwise, the tree is computed from scratch and saved.
@@ -128,12 +129,11 @@ pub fn load_or_compute_label_tree(
             println!("{e}");
             println!("Could not load saved {label} label tree; computing from scratch.");
             let collection = load_labeled_collection_polygons(collection_path, label);
-            let tree = LabeledPartitionTree::from_labeled_polygons(
-                &collection.keys().cloned().collect(),
-                &collection,
+            let tree = LabeledPartitionTree::from_labeled_polygons_queue_pool(
+                collection,
                 Rect::new(Point::new(-180.0, 90.0), Point::new(180.0, -90.0)),
                 max_depth,
-                0,
+                16,
             );
             let tree_json = serde_json::to_string(&tree).unwrap();
             fs::write(cache_path, tree_json).unwrap();
@@ -159,7 +159,6 @@ pub fn load_or_compute_country_label_tree(
 ) -> LabeledPartitionTree<String> {
     load_or_compute_label_tree(cache_dir, countries_path, "ISO_A2", max_depth)
 }
-
 
 /// Loads or computes a labeled province partition tree.
 /// If a cached version of the tree exists, it is loaded; otherwise, the tree is computed from scratch and saved.

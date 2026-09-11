@@ -4,27 +4,33 @@ use plotters::{
     series::LineSeries,
     style::{BLACK, RED, WHITE},
 };
-use std::{collections::HashMap, hash::Hash, path::Path};
+use std::{
+    collections::HashMap,
+    hash::Hash,
+    path::Path,
+    sync::{Arc, Mutex},
+    thread,
+};
 
 /// A struct representing a labeled partition tree.
 ///
-/// This structure is used for performing fast point-in-polygon queries by recursively checking 
+/// This structure is used for performing fast point-in-polygon queries by recursively checking
 /// bounding boxes before performing the final point-in-polygon check.
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, std::clone::Clone)]
 pub struct LabeledPartitionTree<T: Eq + Hash> {
     children: Box<Vec<LabeledPartitionTree<T>>>,
     polygons: HashMap<T, MultiPolygon>,
     bbox: Rect,
 }
 
-impl<T: Clone + Eq + Hash> LabeledPartitionTree<T> {
+impl<T: Clone + Eq + Hash + Sync + Send + 'static> LabeledPartitionTree<T> {
     /// Constructs a labeled partition tree from a set of labeled polygons.
     ///
     /// # Arguments
     /// * `selected` - The labels of the polygons to be included in the tree.
     /// * `polygons` - A map of labels to their corresponding polygons.
     /// * `bbox` - The bounding box for the current partition.
-    /// * `max_depth` - The maximum depth of the tree. Deeper trees tend to result in faster queries, 
+    /// * `max_depth` - The maximum depth of the tree. Deeper trees tend to result in faster queries,
     ///                 but take much longer to construct.
     /// * `depth` - The current depth during recursion.
     pub fn from_labeled_polygons(
@@ -106,11 +112,255 @@ impl<T: Clone + Eq + Hash> LabeledPartitionTree<T> {
         }
     }
 
+    fn label_leaf_polygons(
+        selected: &[T],
+        polygons: &HashMap<T, MultiPolygon>,
+        bbox: Rect,
+        depth: usize,
+        max_depth: usize,
+    ) -> Option<HashMap<T, MultiPolygon>> {
+        if depth == max_depth {
+            Some(
+                selected
+                    .iter()
+                    .map(|label| {
+                        (
+                            label.clone(),
+                            polygons
+                                .get(label)
+                                .unwrap()
+                                .intersection(&MultiPolygon::from(bbox)), // TODO this intersection is slow
+                        )
+                    })
+                    .collect(),
+            )
+        } else if selected.len() == 0 {
+            Some(HashMap::new())
+        } else if selected.len() == 1 && polygons.get(&selected[0]).unwrap().contains(&bbox) {
+            // TODO the check for this is slow
+            Some(
+                vec![(selected[0].clone(), MultiPolygon::from(bbox))]
+                    .into_iter()
+                    .collect(),
+            )
+        } else {
+            None
+        }
+    }
+
+    fn select_child_bboxes(
+        selected: &[T],
+        polygons: &HashMap<T, MultiPolygon>,
+        bbox: Rect,
+    ) -> Vec<(Vec<T>, Rect)> {
+        // TODO check if a different branching factor can speed things up
+        let [ab, cd] = bbox.split_x();
+        let [a, b] = ab.split_y();
+        let [c, d] = cd.split_y();
+        let bboxes = vec![a, b, c, d];
+
+        bboxes
+            .iter()
+            .map(|bbox| {
+                // TODO it might be possible to speed up this intersection check
+                (
+                    selected
+                        .iter()
+                        .filter(|&label| bbox.intersects(polygons.get(label).unwrap()))
+                        .cloned()
+                        .collect(),
+                    bbox.clone(),
+                )
+            })
+            .collect()
+    }
+
+    /// Constructs a labeled partition tree from a set of labeled polygons.
+    ///
+    /// This uses a queue instead of an implicit stack with recursion. In practice,
+    /// this is slightly faster than the recursive version.
+    ///
+    /// # Arguments
+    /// * `polygons` - A map of labels to their corresponding polygons.
+    /// * `bbox` - The bounding box for the current partition.
+    /// * `max_depth` - The maximum depth of the tree. Deeper trees tend to result in faster queries,
+    ///                 but take much longer to construct.
+    pub fn from_labeled_polygons_queue(
+        polygons: &HashMap<T, MultiPolygon>,
+        bbox: Rect,
+        max_depth: usize,
+    ) -> LabeledPartitionTree<T> {
+        let root = LabeledPartitionTree {
+            children: Box::new(Vec::new()),
+            polygons: HashMap::new(),
+            bbox: bbox,
+        };
+        let mut queue: Vec<(usize, Vec<T>, Rect, usize)> =
+            vec![(0, polygons.keys().cloned().collect(), bbox, 0)];
+        let mut nodes = vec![root];
+        let mut parents = Vec::new();
+
+        while let Some((parent_id, selected, bbox, depth)) = queue.pop() {
+            if let Some(labeling) = LabeledPartitionTree::label_leaf_polygons(
+                &selected, polygons, bbox, depth, max_depth,
+            ) {
+                let child_id = nodes.len();
+                nodes.push(LabeledPartitionTree {
+                    children: Box::new(Vec::new()),
+                    polygons: labeling,
+                    bbox: bbox,
+                });
+                parents.push((parent_id, child_id))
+            } else {
+                LabeledPartitionTree::select_child_bboxes(&selected, polygons, bbox)
+                    .iter()
+                    .cloned()
+                    .for_each(|(selected, bbox)| {
+                        let child = LabeledPartitionTree {
+                            children: Box::new(Vec::new()),
+                            polygons: HashMap::new(),
+                            bbox: bbox,
+                        };
+                        let child_id = nodes.len();
+                        nodes.push(child);
+                        parents.push((parent_id, child_id));
+                        queue.push((child_id, selected, bbox, depth + 1));
+                    });
+            }
+        }
+
+        // Annoyingly, it's important that we go in reverse order here since we clone
+        // the child nodes.
+        // This would be simpler if we just re-represented the tree structure as indexes
+        // and a linear node array, as we have them here.
+        for (parent_id, child_id) in parents.into_iter().rev() {
+            let child = nodes[child_id].clone();
+            nodes[parent_id].children.push(child);
+        }
+
+        nodes[0].clone()
+    }
+
+    /// Constructs a labeled partition tree from a set of labeled polygons in parallel.
+    ///
+    /// This function is a bit messy. See the single-threaded version for a cleaner
+    /// implementation of this algorithm.
+    ///
+    /// # Arguments
+    /// * `polygons` - A map of labels to their corresponding polygons.
+    /// * `bbox` - The bounding box for the current partition.
+    /// * `max_depth` - The maximum depth of the tree. Deeper trees tend to result in faster queries,
+    ///                 but take much longer to construct.
+    /// * `threads` - The number of threads to use when computing the tree.
+    pub fn from_labeled_polygons_queue_pool(
+        polygons: HashMap<T, MultiPolygon>,
+        bbox: Rect,
+        max_depth: usize,
+        threads: usize,
+    ) -> LabeledPartitionTree<T> {
+        let root = LabeledPartitionTree {
+            children: Box::new(Vec::new()),
+            polygons: HashMap::new(),
+            bbox: bbox,
+        };
+        let queue: Arc<Mutex<Vec<(usize, Vec<T>, Rect, usize)>>> = Arc::new(Mutex::new(vec![(
+            0,
+            polygons.keys().cloned().collect(),
+            bbox,
+            0,
+        )]));
+        let active = Arc::new(Mutex::new(1));
+        let polygons_ref = Arc::new(polygons);
+        let nodes = Arc::new(Mutex::new(vec![root]));
+        let parents = Arc::new(Mutex::new(Vec::new()));
+
+        let mut handles = vec![];
+
+        for _ in 0..threads {
+            let active = Arc::clone(&active);
+            let queue = Arc::clone(&queue);
+            let polygons = Arc::clone(&polygons_ref);
+            let parents = Arc::clone(&parents);
+            let nodes = Arc::clone(&nodes);
+            let handle = thread::spawn(move || {
+                while { *active.lock().unwrap() } > 0 {
+                    let next = { queue.lock().unwrap().pop() };
+                    if let Some((parent_id, selected, bbox, depth)) = next {
+                        if let Some(labeling) = LabeledPartitionTree::label_leaf_polygons(
+                            &selected, &polygons, bbox, depth, max_depth,
+                        ) {
+                            let child_id = {
+                                let mut nodes = nodes.lock().unwrap();
+                                let child_id = nodes.len();
+                                nodes.push(LabeledPartitionTree {
+                                    children: Box::new(Vec::new()),
+                                    polygons: labeling,
+                                    bbox: bbox,
+                                });
+                                child_id
+                            };
+                            {
+                                parents.lock().unwrap().push((parent_id, child_id));
+                            }
+                        } else {
+                            LabeledPartitionTree::select_child_bboxes(&selected, &polygons, bbox)
+                                .iter()
+                                .cloned()
+                                .for_each(|(selected, bbox)| {
+                                    let child = LabeledPartitionTree {
+                                        children: Box::new(Vec::new()),
+                                        polygons: HashMap::new(),
+                                        bbox: bbox,
+                                    };
+                                    let child_id = {
+                                        let mut nodes = nodes.lock().unwrap();
+                                        let child_id = nodes.len();
+                                        nodes.push(child);
+                                        child_id
+                                    };
+                                    {
+                                        parents.lock().unwrap().push((parent_id, child_id));
+                                    }
+                                    {
+                                        queue.lock().unwrap().push((
+                                            child_id,
+                                            selected,
+                                            bbox,
+                                            depth + 1,
+                                        ));
+                                        *active.lock().unwrap() += 1;
+                                    }
+                                });
+                        }
+                        *active.lock().unwrap() -= 1;
+                    }
+                }
+            });
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        // Annoyingly, it's important that we go in reverse order here since we clone
+        // the child nodes.
+        // This would be simpler if we just re-represented the tree structure as indexes
+        // and a linear node array, as we have them here.
+        let mut nodes = nodes.lock().unwrap();
+        for (parent_id, child_id) in parents.clone().lock().unwrap().clone().into_iter().rev() {
+            let child = nodes[child_id].clone();
+            nodes[parent_id].children.push(child);
+        }
+
+        nodes[0].clone()
+    }
+
     /// Returns the label of the partition that contains the given point.
     ///
     /// This method recursively searches for the leaf node that contains the point and returns its label.
     /// If no leaf node contains the point, `None` is returned.
-    /// 
+    ///
     /// # Arguments
     /// * `point` - The point to check.
     pub fn label(&self, point: &Point) -> Option<T> {
@@ -188,4 +438,3 @@ impl<T: Clone + Eq + Hash> LabeledPartitionTree<T> {
         }
     }
 }
-
