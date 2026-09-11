@@ -5,7 +5,6 @@
 /// 2. Builds a labeled partition tree for provinces based on the downloaded map data.
 /// 3. Generates a list of random latitude-longitude coordinates.
 /// 4. Queries the province label for each coordinate using the partition tree.
-
 use std::{path::Path, time::Instant};
 
 use geo_types::Point;
@@ -18,7 +17,7 @@ pub fn main() {
     // build a label tree so we can do point-in-province queries (should take about 1 minute)
     let province_label_tree = load_or_compute_province_label_tree(
         Path::new("data"),
-        Path::new("data\\ne_10m_admin_1_states_provinces_lakes.geojson"),
+        Path::new("data/ne_10m_admin_1_states_provinces_lakes.geojson"),
         6,
     );
 
