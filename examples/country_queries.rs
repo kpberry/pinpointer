@@ -8,18 +8,14 @@
 use std::{path::Path, time::Instant};
 
 use geo_types::Point;
-use pinpointer::datasets::{lazy_download_map_data, load_or_compute_country_label_tree};
+use pinpointer::datasets::MapLoader;
 use rand::Rng;
 
 pub fn main() {
-    lazy_download_map_data().unwrap(); // make sure we can access the country maps we need
+    let mut loader = MapLoader::new(Path::new("data"));
 
     // build a label tree so we can do point-in-country queries (should take about 1 minute)
-    let country_label_tree = load_or_compute_country_label_tree(
-        Path::new("data"),
-        Path::new("data/ne_10m_admin_0_countries_lakes.geojson"),
-        6,
-    );
+    let country_label_tree = loader.countries_label_tree(6);
 
     let mut rng = rand::thread_rng();
     let latlons: Vec<(f64, f64)> = (0..10000000)

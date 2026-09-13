@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::{collections::HashMap, fs, path::Path};
 
 use geo::{MultiPolygon, Point, Polygon, Rect};
@@ -9,43 +10,85 @@ use reqwest::blocking::get;
 use std::fs::{create_dir, File};
 use std::io::prelude::*;
 
+pub struct MapLoader {
+    pub cache_dir: PathBuf,
+}
+
+/// MapLoader loads map and label tree data, using cached data when possible.
+impl MapLoader {
+    pub fn new(cache_dir: &Path) -> Self {
+        MapLoader {
+            cache_dir: cache_dir.into(),
+        }
+    }
+
+    pub fn download_countries(&mut self) -> PathBuf {
+        lazy_download_countries(&self.cache_dir).unwrap()
+    }
+
+    pub fn download_provinces(&mut self) -> PathBuf {
+        lazy_download_provinces(&self.cache_dir).unwrap()
+    }
+
+    pub fn countries(&mut self) -> HashMap<String, MultiPolygon> {
+        let countries = self.download_countries();
+        load_countries(&countries)
+    }
+
+    pub fn provinces(&mut self) -> HashMap<String, MultiPolygon> {
+        let provinces = self.download_provinces();
+        load_provinces(&provinces)
+    }
+
+    pub fn countries_label_tree(&mut self, max_depth: usize) -> LabeledPartitionTree<String> {
+        let countries = self.download_countries();
+        load_or_compute_country_label_tree(&self.cache_dir, &countries, max_depth)
+    }
+
+    pub fn provinces_label_tree(&mut self, max_depth: usize) -> LabeledPartitionTree<String> {
+        let provinces = self.download_provinces();
+        load_or_compute_province_label_tree(&self.cache_dir, &provinces, max_depth)
+    }
+}
+
 /// Downloads map data lazily if it doesn't exist in the specified directory.
 ///
 /// # Errors
 ///
 /// Returns an error if there is an issue with downloading or writing the files.
-pub fn lazy_download_map_data() -> Result<(), Box<dyn std::error::Error>> {
-    let filenames = vec![
-        "ne_10m_admin_0_countries_lakes.geojson",
-        "ne_10m_admin_1_states_provinces_lakes.geojson",
-    ];
-    for filename in filenames {
-        let data_path = Path::new("data");
-        if !data_path.exists() {
-            create_dir(data_path).unwrap();
-        }
-
-        let output_path = data_path.join(filename);
-        if output_path.exists() {
-            println!("Loaded {:?} from local file.", output_path);
-        } else {
-            let url = format!(
-                "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/{}",
-                filename
-            );
-            println!(
-                "{:?} not found locally. Downloading from {}",
-                output_path, url
-            );
-            let data = get(&url)?.bytes()?;
-
-            let mut file = File::create(&output_path)?;
-            file.write_all(&data)?;
-            println!("Done.");
-        }
+pub fn lazy_download_map_data(
+    out_dir: &Path,
+    map_filename: &str,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    if !out_dir.exists() {
+        create_dir(out_dir).unwrap();
     }
 
-    Ok(())
+    let out_path = out_dir.join(map_filename);
+    if out_path.exists() {
+        println!("Loaded {:?} from local file.", out_path);
+    } else {
+        let url = format!(
+            "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/{}",
+            map_filename
+        );
+        println!("{:?} not found locally. Downloading from {}", out_path, url);
+        let data = get(&url)?.bytes()?;
+
+        let mut file = File::create(&out_path)?;
+        file.write_all(&data)?;
+        println!("Done.");
+    }
+
+    Ok(out_path)
+}
+
+pub fn lazy_download_countries(out_dir: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    lazy_download_map_data(out_dir, "ne_10m_admin_0_countries_lakes.geojson")
+}
+
+pub fn lazy_download_provinces(out_dir: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    lazy_download_map_data(out_dir, "ne_10m_admin_1_states_provinces_lakes.geojson")
 }
 
 /// Loads labeled polygons from a GeoJSON file and returns them as a HashMap.

@@ -8,18 +8,14 @@
 use std::{path::Path, time::Instant};
 
 use geo_types::Point;
-use pinpointer::datasets::{lazy_download_map_data, load_or_compute_province_label_tree};
+use pinpointer::datasets::MapLoader;
 use rand::Rng;
 
 pub fn main() {
-    lazy_download_map_data().unwrap(); // make sure we can access the province maps we need
+    let mut loader = MapLoader::new(Path::new("data"));
 
     // build a label tree so we can do point-in-province queries (should take about 1 minute)
-    let province_label_tree = load_or_compute_province_label_tree(
-        Path::new("data"),
-        Path::new("data/ne_10m_admin_1_states_provinces_lakes.geojson"),
-        6,
-    );
+    let province_label_tree = loader.provinces_label_tree(6);
 
     let mut rng = rand::thread_rng();
     let latlons: Vec<(f64, f64)> = (0..10000000)

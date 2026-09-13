@@ -1,14 +1,12 @@
 use std::{net::SocketAddr, path::Path, sync::Arc};
 
 use axum::{extract::Query, routing::get, Router};
-use datasets::{
-    load_or_compute_country_label_tree, load_or_compute_province_label_tree, lazy_download_map_data,
-};
 use geo::Point;
 
 mod datasets;
 mod labeling;
 
+use crate::datasets::MapLoader;
 use serde::Deserialize;
 
 use crate::labeling::LabeledPartitionTree;
@@ -30,20 +28,12 @@ async fn lat_lon_to_label(
 
 #[tokio::main]
 async fn main() {
-    lazy_download_map_data().expect("Could not load or download map data.");
+    let mut loader = MapLoader::new(Path::new("data"));
 
-    let country_label_tree = load_or_compute_country_label_tree(
-        Path::new("data"),
-        Path::new("data\\ne_10m_admin_0_countries_lakes.geojson"),
-        6
-    );
+    let country_label_tree = loader.countries_label_tree(6);
     let country_label_tree_arc = Arc::new(country_label_tree);
 
-    let province_label_tree = load_or_compute_province_label_tree(
-        Path::new("data"),
-        Path::new("data\\ne_10m_admin_1_states_provinces_lakes.geojson"),
-        6
-    );
+    let province_label_tree = loader.provinces_label_tree(6);
     let province_label_tree_arc = Arc::new(province_label_tree);
 
     let app = Router::new()
