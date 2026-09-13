@@ -12,106 +12,23 @@ use std::{
     thread,
 };
 
+#[derive(serde::Serialize, serde::Deserialize, std::clone::Clone, PartialEq, Debug)]
+struct Node<T: Eq + Hash> {
+    children: Vec<usize>,
+    polygons: HashMap<T, MultiPolygon>,
+    bbox: Rect,
+}
+
 /// A struct representing a labeled partition tree.
 ///
 /// This structure is used for performing fast point-in-polygon queries by recursively checking
 /// bounding boxes before performing the final point-in-polygon check.
 #[derive(serde::Serialize, serde::Deserialize, std::clone::Clone, PartialEq, Debug)]
 pub struct LabeledPartitionTree<T: Eq + Hash> {
-    children: Box<Vec<LabeledPartitionTree<T>>>,
-    polygons: HashMap<T, MultiPolygon>,
-    bbox: Rect,
+    nodes: Vec<Node<T>>,
 }
 
 impl<T: Clone + Eq + Hash + Sync + Send + 'static> LabeledPartitionTree<T> {
-    /// Constructs a labeled partition tree from a set of labeled polygons.
-    ///
-    /// # Arguments
-    /// * `selected` - The labels of the polygons to be included in the tree.
-    /// * `polygons` - A map of labels to their corresponding polygons.
-    /// * `bbox` - The bounding box for the current partition.
-    /// * `max_depth` - The maximum depth of the tree. Deeper trees tend to result in faster queries,
-    ///                 but take much longer to construct.
-    /// * `depth` - The current depth during recursion.
-    pub fn from_labeled_polygons(
-        selected: &Vec<T>,
-        polygons: &HashMap<T, MultiPolygon>,
-        bbox: Rect,
-        max_depth: usize,
-        depth: usize,
-    ) -> LabeledPartitionTree<T> {
-        let (children, inner_polygons) = if depth == max_depth {
-            (
-                Box::new(vec![]),
-                selected
-                    .iter()
-                    .map(|label| {
-                        (
-                            label.clone(),
-                            polygons
-                                .get(label)
-                                .unwrap()
-                                .intersection(&MultiPolygon::from(bbox)), // TODO this intersection is slow
-                        )
-                    })
-                    .collect(),
-            )
-        } else if selected.len() == 0 {
-            (Box::new(vec![]), HashMap::new())
-        } else if selected.len() == 1 && polygons.get(&selected[0]).unwrap().contains(&bbox) {
-            // TODO the check for this is slow
-            (
-                Box::new(vec![]),
-                vec![(selected[0].clone(), MultiPolygon::from(bbox))]
-                    .into_iter()
-                    .collect(),
-            )
-        } else {
-            // TODO check if a different branching factor can speed things up
-            let [ab, cd] = bbox.split_x();
-            let [a, b] = ab.split_y();
-            let [c, d] = cd.split_y();
-            let bboxes = vec![a, b, c, d];
-
-            let bbox_selected_polygons: Vec<Vec<T>> = bboxes
-                .iter()
-                .map(|bbox| {
-                    // TODO it might be possible to speed up this intersection check
-                    selected
-                        .iter()
-                        .filter(|&label| bbox.intersects(polygons.get(label).unwrap()))
-                        .cloned()
-                        .collect()
-                })
-                .collect();
-
-            (
-                Box::new(
-                    bbox_selected_polygons
-                        .iter()
-                        .zip(bboxes)
-                        .map(|(selected, bbox)| {
-                            LabeledPartitionTree::from_labeled_polygons(
-                                selected,
-                                polygons,
-                                bbox,
-                                max_depth,
-                                depth + 1,
-                            )
-                        })
-                        .collect(),
-                ),
-                HashMap::new(),
-            )
-        };
-
-        LabeledPartitionTree {
-            children,
-            bbox,
-            polygons: inner_polygons,
-        }
-    }
-
     fn label_leaf_polygons(
         selected: &[T],
         polygons: &HashMap<T, MultiPolygon>,
@@ -190,10 +107,10 @@ impl<T: Clone + Eq + Hash + Sync + Send + 'static> LabeledPartitionTree<T> {
         bbox: Rect,
         max_depth: usize,
     ) -> LabeledPartitionTree<T> {
-        let root = LabeledPartitionTree {
-            children: Box::new(Vec::new()),
+        let root = Node {
+            children: vec![],
             polygons: HashMap::new(),
-            bbox: bbox,
+            bbox,
         };
         let mut queue: Vec<(usize, Vec<T>, Rect, usize)> =
             vec![(0, polygons.keys().cloned().collect(), bbox, 0)];
@@ -201,23 +118,23 @@ impl<T: Clone + Eq + Hash + Sync + Send + 'static> LabeledPartitionTree<T> {
         let mut parents = Vec::new();
 
         while let Some((parent_id, selected, bbox, depth)) = queue.pop() {
-            if let Some(labeling) = LabeledPartitionTree::label_leaf_polygons(
-                &selected, polygons, bbox, depth, max_depth,
-            ) {
+            if let Some(labeling) =
+                Self::label_leaf_polygons(&selected, polygons, bbox, depth, max_depth)
+            {
                 let child_id = nodes.len();
-                nodes.push(LabeledPartitionTree {
-                    children: Box::new(Vec::new()),
+                nodes.push(Node {
+                    children: vec![],
                     polygons: labeling,
                     bbox: bbox,
                 });
                 parents.push((parent_id, child_id))
             } else {
-                LabeledPartitionTree::select_child_bboxes(&selected, polygons, bbox)
+                Self::select_child_bboxes(&selected, polygons, bbox)
                     .iter()
                     .cloned()
                     .for_each(|(selected, bbox)| {
-                        let child = LabeledPartitionTree {
-                            children: Box::new(Vec::new()),
+                        let child = Node {
+                            children: vec![],
                             polygons: HashMap::new(),
                             bbox: bbox,
                         };
@@ -229,16 +146,11 @@ impl<T: Clone + Eq + Hash + Sync + Send + 'static> LabeledPartitionTree<T> {
             }
         }
 
-        // Annoyingly, it's important that we go in reverse order here since we clone
-        // the child nodes.
-        // This would be simpler if we just re-represented the tree structure as indexes
-        // and a linear node array, as we have them here.
-        for (parent_id, child_id) in parents.into_iter().rev() {
-            let child = nodes[child_id].clone();
-            nodes[parent_id].children.push(child);
+        for (parent_id, child_id) in parents {
+            nodes[parent_id].children.push(child_id);
         }
 
-        nodes[0].clone()
+        LabeledPartitionTree { nodes }
     }
 
     /// Constructs a labeled partition tree from a set of labeled polygons in parallel.
@@ -258,8 +170,8 @@ impl<T: Clone + Eq + Hash + Sync + Send + 'static> LabeledPartitionTree<T> {
         max_depth: usize,
         threads: usize,
     ) -> LabeledPartitionTree<T> {
-        let root = LabeledPartitionTree {
-            children: Box::new(Vec::new()),
+        let root = Node {
+            children: vec![],
             polygons: HashMap::new(),
             bbox: bbox,
         };
@@ -286,14 +198,14 @@ impl<T: Clone + Eq + Hash + Sync + Send + 'static> LabeledPartitionTree<T> {
                 while { *active.lock().unwrap() } > 0 {
                     let next = { queue.lock().unwrap().pop() };
                     if let Some((parent_id, selected, bbox, depth)) = next {
-                        if let Some(labeling) = LabeledPartitionTree::label_leaf_polygons(
-                            &selected, &polygons, bbox, depth, max_depth,
-                        ) {
+                        if let Some(labeling) =
+                            Self::label_leaf_polygons(&selected, &polygons, bbox, depth, max_depth)
+                        {
                             let child_id = {
                                 let mut nodes = nodes.lock().unwrap();
                                 let child_id = nodes.len();
-                                nodes.push(LabeledPartitionTree {
-                                    children: Box::new(Vec::new()),
+                                nodes.push(Node {
+                                    children: vec![],
                                     polygons: labeling,
                                     bbox: bbox,
                                 });
@@ -303,12 +215,12 @@ impl<T: Clone + Eq + Hash + Sync + Send + 'static> LabeledPartitionTree<T> {
                                 parents.lock().unwrap().push((parent_id, child_id));
                             }
                         } else {
-                            LabeledPartitionTree::select_child_bboxes(&selected, &polygons, bbox)
+                            Self::select_child_bboxes(&selected, &polygons, bbox)
                                 .iter()
                                 .cloned()
                                 .for_each(|(selected, bbox)| {
-                                    let child = LabeledPartitionTree {
-                                        children: Box::new(Vec::new()),
+                                    let child = Node {
+                                        children: vec![],
                                         polygons: HashMap::new(),
                                         bbox: bbox,
                                     };
@@ -343,17 +255,14 @@ impl<T: Clone + Eq + Hash + Sync + Send + 'static> LabeledPartitionTree<T> {
             handle.join().unwrap();
         }
 
-        // Annoyingly, it's important that we go in reverse order here since we clone
-        // the child nodes.
-        // This would be simpler if we just re-represented the tree structure as indexes
-        // and a linear node array, as we have them here.
         let mut nodes = nodes.lock().unwrap();
-        for (parent_id, child_id) in parents.clone().lock().unwrap().clone().into_iter().rev() {
-            let child = nodes[child_id].clone();
-            nodes[parent_id].children.push(child);
+        for &(parent_id, child_id) in parents.clone().lock().unwrap().iter() {
+            nodes[parent_id].children.push(child_id);
         }
 
-        nodes[0].clone()
+        LabeledPartitionTree {
+            nodes: nodes.clone(),
+        }
     }
 
     /// Returns the label of the partition that contains the given point.
@@ -364,8 +273,12 @@ impl<T: Clone + Eq + Hash + Sync + Send + 'static> LabeledPartitionTree<T> {
     /// # Arguments
     /// * `point` - The point to check.
     pub fn label(&self, point: &Point) -> Option<T> {
-        if self.children.is_empty() {
-            self.polygons.iter().find_map(|(label, polygon)| {
+        self._label(point, &self.nodes[0])
+    }
+
+    fn _label(&self, point: &Point, node: &Node<T>) -> Option<T> {
+        if node.children.is_empty() {
+            node.polygons.iter().find_map(|(label, polygon)| {
                 if polygon.contains(point) {
                     Some(label.clone())
                 } else {
@@ -373,20 +286,20 @@ impl<T: Clone + Eq + Hash + Sync + Send + 'static> LabeledPartitionTree<T> {
                 }
             })
         } else {
-            self.children
+            node.children
                 .iter()
+                .map(|&child_id| &self.nodes[child_id])
                 .filter(|child| child.bbox.contains(point))
-                .find_map(|child| child.label(point))
+                .find_map(|child| self._label(point, &child))
         }
     }
 
     /// Returns the number of leaf nodes in the tree.
     pub fn size(&self) -> usize {
-        if self.children.is_empty() {
-            1
-        } else {
-            self.children.iter().map(|child| child.size()).sum()
-        }
+        self.nodes
+            .iter()
+            .filter(|node| node.children.is_empty())
+            .count()
     }
 
     /// Plots the labeled partition tree and saves the image to the specified path.
@@ -427,15 +340,11 @@ impl<T: Clone + Eq + Hash + Sync + Send + 'static> LabeledPartitionTree<T> {
 
     /// Returns a vector of bounding boxes for all leaf nodes in the labeled partition tree.
     fn bboxes(&self) -> Vec<Rect> {
-        if self.children.is_empty() {
-            return vec![self.bbox];
-        } else {
-            self.children
-                .iter()
-                .map(|child| child.bboxes())
-                .flatten()
-                .collect()
-        }
+        self.nodes
+            .iter()
+            .filter(|node| node.children.is_empty())
+            .map(|child| child.bbox)
+            .collect()
     }
 }
 
@@ -451,15 +360,6 @@ mod tests {
     fn test_tree_computation_methods_produce_same_query_results() {
         let mut map_loader = MapLoader::new(Path::new("test_data"));
         let provinces = map_loader.provinces();
-
-        let recursive_tree = LabeledPartitionTree::from_labeled_polygons(
-            &provinces.keys().cloned().collect(),
-            &provinces,
-            Rect::new(Point::new(-180.0, 90.0), Point::new(180.0, -90.0)),
-            5,
-            0,
-        );
-        println!("computed recursive tree");
 
         let queue_tree = LabeledPartitionTree::from_labeled_polygons_queue(
             &provinces,
@@ -484,11 +384,9 @@ mod tests {
                 let lon = -180.0 + (i as f64 / w as f64) * 360.0;
                 let p = Point::new(lon, lat);
 
-                let r_tree_label = recursive_tree.label(&p);
                 let q_tree_label = queue_tree.label(&p);
                 let pq_tree_label = parallel_queue_tree.label(&p);
 
-                assert_eq!(r_tree_label, q_tree_label);
                 assert_eq!(q_tree_label, pq_tree_label);
             }
         }
