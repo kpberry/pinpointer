@@ -16,7 +16,7 @@ use std::{
 ///
 /// This structure is used for performing fast point-in-polygon queries by recursively checking
 /// bounding boxes before performing the final point-in-polygon check.
-#[derive(serde::Serialize, serde::Deserialize, std::clone::Clone)]
+#[derive(serde::Serialize, serde::Deserialize, std::clone::Clone, PartialEq, Debug)]
 pub struct LabeledPartitionTree<T: Eq + Hash> {
     children: Box<Vec<LabeledPartitionTree<T>>>,
     polygons: HashMap<T, MultiPolygon>,
@@ -428,13 +428,69 @@ impl<T: Clone + Eq + Hash + Sync + Send + 'static> LabeledPartitionTree<T> {
     /// Returns a vector of bounding boxes for all leaf nodes in the labeled partition tree.
     fn bboxes(&self) -> Vec<Rect> {
         if self.children.is_empty() {
-            vec![self.bbox]
+            return vec![self.bbox];
         } else {
             self.children
                 .iter()
                 .map(|child| child.bboxes())
                 .flatten()
                 .collect()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use geo::{Point, Rect};
+
+    use crate::{datasets::MapLoader, labeling::LabeledPartitionTree};
+
+    #[test]
+    fn test_tree_computation_methods_produce_same_query_results() {
+        let mut map_loader = MapLoader::new(Path::new("test_data"));
+        let provinces = map_loader.provinces();
+
+        let recursive_tree = LabeledPartitionTree::from_labeled_polygons(
+            &provinces.keys().cloned().collect(),
+            &provinces,
+            Rect::new(Point::new(-180.0, 90.0), Point::new(180.0, -90.0)),
+            5,
+            0,
+        );
+        println!("computed recursive tree");
+
+        let queue_tree = LabeledPartitionTree::from_labeled_polygons_queue(
+            &provinces,
+            Rect::new(Point::new(-180.0, 90.0), Point::new(180.0, -90.0)),
+            5,
+        );
+        println!("computed queue tree");
+
+        let parallel_queue_tree = LabeledPartitionTree::from_labeled_polygons_queue_pool(
+            provinces.clone(),
+            Rect::new(Point::new(-180.0, 90.0), Point::new(180.0, -90.0)),
+            5,
+            10,
+        );
+        println!("computed parallel queue tree");
+
+        let w = 1000;
+        let h = 1000;
+        for i in 0..w {
+            for j in 0..h {
+                let lat = -90.0 + (j as f64 / h as f64) * 180.0;
+                let lon = -180.0 + (i as f64 / w as f64) * 360.0;
+                let p = Point::new(lon, lat);
+
+                let r_tree_label = recursive_tree.label(&p);
+                let q_tree_label = queue_tree.label(&p);
+                let pq_tree_label = parallel_queue_tree.label(&p);
+
+                assert_eq!(r_tree_label, q_tree_label);
+                assert_eq!(q_tree_label, pq_tree_label);
+            }
         }
     }
 }
